@@ -10,6 +10,27 @@
     <h1>Support Desk</h1>
     <p>Create and track support requests.</p>
 
+    <h2>Create a ticket</h2>
+
+    <form action="/tickets" method="post">
+      <div>
+        <label for="author">Author</label>
+        <input id="author" name="author" type="text" required>
+      </div>
+
+      <div>
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required>
+      </div>
+
+      <div>
+        <label for="content">Description</label>
+        <textarea id="content" name="content" required></textarea>
+      </div>
+
+      <button type="submit">Create ticket</button>
+    </form>
+
     <h2>Tickets</h2>
     <p>No tickets yet.</p>
   </main>

@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: support-desk-mysql
+    environment:
+      MYSQL_DATABASE: support_desk
+      MYSQL_USER: support_desk
+      MYSQL_PASSWORD: support_desk_password
+      MYSQL_ROOT_PASSWORD: local_root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  mysql_data:
