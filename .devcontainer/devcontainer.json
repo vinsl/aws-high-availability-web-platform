@@ -1,0 +1,8 @@
+{
+  "name": "Support Tickets Platform",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "terraform version && aws --version"
+}
