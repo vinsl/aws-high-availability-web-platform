@@ -1,8 +1,11 @@
 {
   "name": "Support Tickets Platform",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
-  "remoteUser": "vscode",
-  "postCreateCommand": "terraform version && aws --version"
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "aws --version && terraform version && docker --version"
 }
