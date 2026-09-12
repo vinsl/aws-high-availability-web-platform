@@ -3,7 +3,7 @@ import sys
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
-from .db import get_connection
+from db import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
