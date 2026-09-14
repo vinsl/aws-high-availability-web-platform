@@ -2,23 +2,23 @@
 
 # Highly Available Support Desk on AWS
 
-A small production-style support ticket web application deployed on AWS with containerized compute, load balancing, private networking, and a relational database.
+A production-style support ticket web application deployed on AWS with Docker, Terraform, Amazon ECS Fargate, an Application Load Balancer, and Amazon RDS for MySQL.
 
-The project was built as a hands-on cloud engineering exercise: package a Python web application with Docker, publish the image, provision reproducible AWS infrastructure with Terraform, deploy the application on Amazon ECS Fargate, validate database persistence end to end, inspect centralized logs, and remove the environment cleanly afterwards.
+This project was built as a hands-on Cloud Engineering exercise: develop and test a Python application locally, package it into a Docker image, provision modular AWS infrastructure with Terraform, deploy two application tasks on ECS Fargate, validate end-to-end persistence in MySQL, inspect CloudWatch logs, and destroy the environment after validation.
 
-> The AWS infrastructure is intentionally destroyed after validation to avoid unnecessary cloud costs. The repository contains the full Terraform configuration, application source code, container definition, and deployment evidence.
+> The AWS infrastructure is intentionally destroyed after validation to avoid unnecessary costs. The repository keeps the complete application source code, automated tests, Docker configuration, Terraform modules, and deployment evidence so the environment can be recreated.
 
 ## What it does
 
-The application provides a minimal support-desk workflow.
+The Support Desk provides a simple ticket workflow.
 
-- Create a support ticket with an author, title, and description.
-- Store ticket data in Amazon RDS for MySQL.
-- Display previously created tickets.
-- Confirm data persistence by showing tickets after a page refresh.
-- Expose a `/health` endpoint used by the Application Load Balancer health checks.
+- Create a ticket with an author, title, and description.
+- Store tickets in Amazon RDS for MySQL.
+- Display submitted tickets in the web interface.
+- Keep tickets available after a page refresh.
+- Expose a `/health` endpoint for load balancer health checks.
 
-Each ticket contains:
+Each ticket includes:
 
 ```text
 id
@@ -32,20 +32,20 @@ created_at
 ## Architecture
 
 ```text
-Internet
+User
   |
   v
 Application Load Balancer
   |
   v
-Amazon ECS Service
+ECS Service
   |
-  +--> Fargate task 1 (Python web application)
+  +--> Fargate task 1
   |
-  +--> Fargate task 2 (Python web application)
+  +--> Fargate task 2
   |
   v
-Amazon RDS for MySQL
+RDS MySQL
 ```
 
 ```mermaid
@@ -55,20 +55,21 @@ flowchart TB
     subgraph VPC[AWS VPC]
         direction TB
 
-        subgraph Public[Public subnets across two Availability Zones]
+        subgraph Public[Public subnets]
             ALB
             NAT[NAT Gateway]
         end
 
-        subgraph PrivateApp[Private application subnets across two Availability Zones]
-            ECS[ECS Service<br/>Desired count: 2]
-            Task1[Fargate task 1<br/>Python / Gunicorn]
-            Task2[Fargate task 2<br/>Python / Gunicorn]
+        subgraph Application[Private application subnets]
+            ECS[Amazon ECS Service<br/>Desired count: 2]
+            Task1[Fargate task 1<br/>Flask / Gunicorn]
+            Task2[Fargate task 2<br/>Flask / Gunicorn]
+
             ECS --> Task1
             ECS --> Task2
         end
 
-        subgraph PrivateDB[Private database subnets]
+        subgraph Database[Private database subnets]
             RDS[(Amazon RDS<br/>MySQL)]
         end
 
@@ -81,209 +82,237 @@ flowchart TB
     end
 
     Task1 --> Logs[Amazon CloudWatch Logs]
-    Task2 --> Logs[Amazon CloudWatch Logs]
+    Task2 --> Logs
 
     Docker[Docker Hub<br/>Application image] --> ECS
-    Terraform[Terraform] -. provisions .-> ALB
+
+    Terraform[Terraform] -. provisions .-> VPC
+    Terraform -. provisions .-> ALB
     Terraform -. provisions .-> ECS
     Terraform -. provisions .-> RDS
     Terraform -. provisions .-> Logs
 ```
 
-## AWS services and tools
+## Technologies
 
 | Technology | Purpose |
 |---|---|
-| Amazon VPC | Provides isolated networking, public and private subnets, route tables, and security boundaries. |
-| Application Load Balancer | Exposes the application publicly and routes requests only to healthy ECS tasks. |
-| Amazon ECS | Orchestrates the containerized application service. |
-| AWS Fargate | Runs application containers without managing EC2 instances. |
-| Amazon RDS for MySQL | Stores support tickets in a managed relational database. |
-| Amazon ECR / Docker Hub | Hosts the container image used by the ECS task definition. |
-| Amazon CloudWatch Logs | Collects container and application logs centrally. |
-| AWS Security Groups | Restricts traffic between the load balancer, application containers, and database. |
-| Terraform | Defines and provisions the infrastructure as code. |
-| Docker | Packages the Python application into a portable container image. |
-| Python | Implements the web application and database interactions. |
-| Flask | Provides the lightweight web application framework. |
-| Gunicorn | Runs the Python application in the Fargate containers. |
-| MySQL | Provides the relational data model for support tickets. |
+| Amazon VPC | Provides isolated networking with public and private subnets. |
+| NAT Gateway | Lets tasks in private subnets access external services without becoming publicly reachable. |
+| Application Load Balancer | Public entry point that routes traffic to healthy application tasks. |
+| Amazon ECS | Orchestrates the containerized Support Desk service. |
+| AWS Fargate | Runs containers without managing EC2 instances. |
+| Amazon RDS for MySQL | Stores persistent ticket data. |
+| Amazon CloudWatch Logs | Collects application and container logs. |
+| AWS Security Groups | Restrict traffic between the load balancer, ECS tasks, and database. |
+| Terraform | Provisions infrastructure through reusable modules. |
+| Docker and Docker Compose | Package and run the application consistently in local and cloud environments. |
+| Python / Flask | Implements the Support Desk application. |
+| Gunicorn | Runs the Flask application in the container. |
+| Pytest | Tests the health endpoint, application rendering, and ticket workflow. |
 
-## Security model
+## Network and security
 
-The application uses separate security groups for each tier.
+The architecture separates public access, application compute, and persistent data.
 
 | Source | Destination | Port | Purpose |
 |---|---|---:|---|
-| Internet | Application Load Balancer | 80 | Public HTTP access to the web application. |
-| ALB security group | ECS task security group | 5000 | Allows the load balancer to forward requests to the Python application. |
-| ECS task security group | RDS security group | 3306 | Allows only the application containers to access MySQL. |
+| Internet | Application Load Balancer | 80 | Public HTTP access. |
+| ALB security group | ECS task security group | 5000 | Forwards requests to the Flask application. |
+| ECS task security group | RDS security group | 3306 | Allows MySQL access only from the application tier. |
 
-The database is deployed in private subnets and is not intended to be publicly accessible. The Application Load Balancer is the only public entry point.
+Only the Application Load Balancer accepts inbound traffic from the internet. ECS tasks and RDS are placed in private subnets, while security groups enforce the allowed traffic path.
 
 ## Engineering decisions
 
-### Containerized application deployment
+### Modular Terraform
 
-The application is packaged as a Docker image and run through ECS Fargate. This separates the application runtime from the underlying infrastructure and avoids server administration for the compute layer.
+Infrastructure is split into focused modules for networking, security, load balancing, ECS, database, and compute configuration. This improves readability, reuse, and maintenance compared with placing every resource in one Terraform file.
 
-### Two running application tasks
+### Containerized Python application
 
-The ECS service maintains a desired count of two Fargate tasks. The Application Load Balancer distributes requests across healthy tasks, reducing the impact of an individual task failure.
+The Flask application is packaged with Docker. The same container definition supports local development through Docker Compose and cloud deployment through ECS Fargate.
 
-### Health checks and traffic routing
+### Two application tasks behind an ALB
 
-The ALB checks the `/health` endpoint before routing traffic to a task. Unhealthy targets are removed from load balancing until they recover or ECS replaces them.
+The ECS service maintains two running Fargate tasks. The ALB distributes incoming requests only to targets that pass the configured health checks.
 
-### Private application and database tiers
+### Health endpoint
 
-ECS tasks and RDS are placed in private subnets. Only the ALB receives inbound traffic from the internet, while security groups enforce the allowed path between tiers.
+The application exposes `/health`, allowing the ALB to check task availability independently of the user-facing ticket page.
 
-### Persistent relational storage
+### Persistent MySQL storage
 
-Support tickets are written to Amazon RDS for MySQL rather than stored in container memory. This means application tasks can be restarted or replaced without losing ticket data.
+Ticket creation writes data to RDS MySQL, while the application reads existing tickets back from the database. Data therefore persists independently from the lifecycle of individual containers.
 
-### Centralized observability
+### Centralized application logs
 
-ECS task logs are sent to CloudWatch Logs. The application logs include successful ticket creation, HTTP requests, and ALB health check activity.
+The application emits operational logs to CloudWatch, including successful health checks and ticket creation events.
 
-### Reproducible infrastructure
+### Testable application behavior
 
-Terraform declares the networking, security groups, ALB, ECS service, task definition, CloudWatch logging, and RDS database. A subsequent `terraform plan` reporting no changes confirms that the deployed state matches the declared configuration.
+The repository contains Pytest tests for the health endpoint, page behavior, and ticket workflow. This gives the application a local verification layer before deployment.
 
 ## Project structure
 
 ```text
 .
 ├── app/
-│   ├── app.py                    # Flask application and ticket workflow
-│   ├── migrate.py                # MySQL schema initialization
-│   ├── requirements.txt          # Python dependencies
-│   ├── Dockerfile                # Container image definition
-│   └── templates/
-│       └── index.html            # Support Desk user interface
+│   ├── app.py                         # Flask routes and ticket workflow
+│   ├── db.py                          # Database connection and query helpers
+│   ├── migrate.py                     # Database migration runner
+│   ├── requirements.txt               # Python dependencies
+│   ├── Dockerfile                     # Application container definition
+│   ├── docker-compose.yml             # Local application and database environment
+│   ├── db/
+│   │   └── 001_create_tickets.sql     # MySQL tickets table schema
+│   ├── templates/
+│   │   └── index.html                 # Support Desk interface
+│   └── test/
+│       ├── test_health.py             # Health endpoint tests
+│       ├── test_index.py              # Index page tests
+│       └── test_tickets.py            # Ticket workflow tests
 ├── terraform/
-│   ├── main.tf                   # Terraform entry point
-│   ├── providers.tf              # Terraform and AWS provider configuration
-│   ├── variables.tf              # Input variables
-│   ├── outputs.tf                # ALB DNS and infrastructure outputs
-│   ├── vpc.tf                    # VPC, subnets, routing, NAT Gateway
-│   ├── security_groups.tf        # ALB, ECS, and RDS security groups
-│   ├── alb.tf                    # ALB, listener, target group, health check
-│   ├── ecs.tf                    # ECS cluster, task definition, service
-│   ├── rds.tf                    # RDS MySQL database and subnet group
-│   ├── cloudwatch.tf             # CloudWatch log group
-│   └── .terraform.lock.hcl       # Locked provider versions
-├── resources/                    # Deployment and validation screenshots
-│   ├── ecs-service-healthy-3.jpg
-│   ├── alb-targets-healthy-2.jpg
-│   ├── ticket-creation-5.jpg
-│   ├── ticket_open-4.jpg
-│   ├── cloudwatch-logs.jpg
-│   └── terraform-plan-terminal-6.jpg
-├── .gitignore
+│   ├── main.tf                        # Root module composition
+│   ├── providers.tf                   # Terraform and AWS provider configuration
+│   ├── variables.tf                   # Root input variables
+│   ├── outputs.tf                     # Infrastructure outputs
+│   ├── terraform.tfvars.example       # Example variable values
+│   ├── .terraform.lock.hcl            # Locked provider versions
+│   └── modules/
+│       ├── network/                   # VPC, subnets, routes, NAT Gateway
+│       ├── security/                  # ALB, ECS, and RDS security groups
+│       ├── load_balancer/             # ALB, listener, target group, health checks
+│       ├── ecs/                       # ECS cluster, task definition, service
+│       ├── database/                  # RDS MySQL and database subnet group
+│       └── compute/                   # Shared compute-related configuration
+├── resources/
+│   ├── ecs-service-healthy.png
+│   ├── alb-targets-healthy.png
+│   ├── ticket-creation.png
+│   ├── ticket_open.png
+│   ├── cloudwatch-logs.png
+│   └── terraform-plan-terminal.png
+├── .devcontainer/
+│   ├── Dockerfile
+│   └── devcontainer.json
+├── LICENSE
 └── README.md
 ```
 
-## Local development
+## Run locally
 
 ### Prerequisites
 
-- Docker
+- Docker and Docker Compose
 - Python 3.12 or newer
 - Terraform
-- AWS CLI configured with credentials for the target AWS account
-- Access to a MySQL database, locally or in AWS
+- AWS CLI configured for the target AWS account
 
-Build the application image locally:
+Start the local application stack:
 
 ```bash
 cd app
-docker build -t support-desk:local .
+docker compose up --build
 ```
 
-Run the container locally with database environment variables:
-
-```bash
-docker run --rm -p 5000:5000 \
-  -e DB_HOST="<mysql-host>" \
-  -e DB_NAME="<database-name>" \
-  -e DB_USER="<database-user>" \
-  -e DB_PASSWORD="<database-password>" \
-  support-desk:local
-```
-
-Open the application at:
+Open the application:
 
 ```text
 http://localhost:5000
 ```
 
+Stop the local stack:
+
+```bash
+docker compose down
+```
+
+## Run tests
+
+From the repository root, activate your Python environment and install dependencies:
+
+```bash
+python -m pip install -r app/requirements.txt
+```
+
+Run the test suite:
+
+```bash
+python -m pytest app/test -v
+```
+
 ## Deploy with Terraform
 
-From the `terraform/` directory:
+Create your local Terraform variables file from the tracked example:
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Update `terraform.tfvars` with the values required for your AWS deployment. Do not commit this file if it contains sensitive values.
+
+Initialize and validate the configuration:
 
 ```bash
 terraform init
-terraform fmt
+terraform fmt -recursive
 terraform validate
 terraform plan
+```
+
+Deploy the infrastructure:
+
+```bash
 terraform apply
 ```
 
-After deployment, retrieve the public Application Load Balancer address:
-
-```bash
-terraform output
-```
-
-Open the ALB DNS name in a browser to access the Support Desk application.
-
-The `.terraform.lock.hcl` file is versioned to keep provider selection reproducible. Local Terraform state files and the `.terraform/` directory should remain excluded from Git.
+After a successful deployment, Terraform outputs the information needed to access the application.
 
 ## Validation evidence
 
-### ECS service health
+### ECS service is stable
 
-The ECS service is active with a desired count of two tasks, two running tasks, zero pending tasks, and a successful deployment.
+The ECS service is active with a desired count of two tasks, two tasks running, no pending tasks, and a successful deployment.
 
-![ECS service active with two running Fargate tasks](resources/ecs-service-healthy-3.jpg)
+![ECS service with two running Fargate tasks](resources/ecs-service-healthy.png)
 
-### Healthy load balancer targets
+### ALB routes to healthy tasks
 
-The Application Load Balancer target group reports two healthy IP targets on application port `5000`. This confirms that the ALB health checks can reach both Fargate tasks.
+The ALB target group reports two healthy IP targets on port `5000`, confirming that both Fargate tasks pass the health checks.
 
-![ALB target group with two healthy Fargate targets](resources/alb-targets-healthy-2.jpg)
+![Target group with two healthy targets](resources/alb-targets-healthy.png)
 
-### Ticket creation through the public ALB
+### Ticket creation through the ALB
 
-The Support Desk is reachable through the public ALB DNS name, and a ticket can be submitted through the web interface.
+The application is reachable through the public load balancer and accepts ticket submissions through its web interface.
 
-![Support ticket creation through the Application Load Balancer](resources/ticket-creation-5.jpg)
+![Support ticket creation page](resources/ticket-creation.png)
 
-### Database persistence after refresh
+### Ticket data persists in MySQL
 
-A created ticket remains visible after a browser refresh, demonstrating that ticket data is stored in MySQL rather than only held in the container process.
+A submitted ticket remains visible after refreshing the page, demonstrating a successful write and read through RDS MySQL.
 
-![Support ticket visible after page refresh](resources/ticket_open-4.jpg)
+![Created ticket visible after refresh](resources/ticket_open.png)
 
-### CloudWatch application logs
+### Centralized CloudWatch logs
 
-CloudWatch Logs records ALB health checks and the successful `ticket_created` application event. This provides operational visibility into application behavior running on ECS.
+CloudWatch records ALB health checks and application-level ticket creation events.
 
-![CloudWatch Logs showing health checks and ticket creation](resources/cloudwatch-logs.jpg)
+![CloudWatch logs showing health checks and ticket creation](resources/cloudwatch-logs.png)
 
 ### Terraform convergence
 
-After deployment, Terraform reports no changes. The live AWS infrastructure matches the Terraform configuration.
+After deployment, Terraform reports no changes, confirming that the deployed AWS resources match the declared configuration.
 
-![Terraform plan reports no changes](resources/terraform-plan-terminal-6.jpg)
+![Terraform plan with no changes](resources/terraform-plan-terminal.png)
 
 ## Cleanup
 
-This environment includes chargeable AWS resources, including the Application Load Balancer, Fargate tasks, RDS instance, and NAT Gateway.
+The deployed stack includes chargeable AWS resources, including Fargate tasks, an ALB, an RDS instance, and a NAT Gateway.
 
-To remove all Terraform-managed resources:
+Destroy all resources tracked by Terraform:
 
 ```bash
 cd terraform
@@ -291,39 +320,33 @@ terraform plan -destroy
 terraform destroy
 ```
 
-Review the destroy plan carefully before confirming. The Terraform code, Docker image definition, and deployment evidence remain available in the repository and can be used to recreate the environment later.
+Review the destruction plan before confirming. The application code, Docker configuration, Terraform modules, tests, and validation evidence remain in the repository and can recreate the environment later.
 
 ## Skills demonstrated
 
-This project demonstrates practical Cloud Engineer skills in:
-
-- Designing a three-tier AWS architecture with a public ingress tier, private containerized application tier, and private database tier.
-- Provisioning cloud infrastructure reproducibly with Terraform.
-- Building and deploying Dockerized Python applications.
-- Operating container workloads with Amazon ECS and AWS Fargate.
-- Configuring Application Load Balancers, target groups, listeners, and health checks.
-- Applying network segmentation with VPCs, public/private subnets, route tables, NAT Gateway, and security groups.
-- Controlling database access through security-group-to-security-group rules.
-- Connecting application containers securely to Amazon RDS for MySQL.
-- Implementing application health endpoints and operational logging.
-- Diagnosing and validating cloud deployments using ECS, ALB target health, CloudWatch Logs, and Terraform plans.
-- Managing cloud costs by destroying non-production resources after validation.
-
-The project builds on a software engineering background that includes Python development, Flask applications, Linux-based systems, databases, distributed systems, embedded software, and end-to-end delivery.
+- Infrastructure as Code with modular Terraform.
+- Docker image creation and local orchestration with Docker Compose.
+- Python and Flask web application development.
+- Automated testing with Pytest.
+- AWS networking with VPCs, public/private subnets, routing, NAT Gateway, and security groups.
+- Container orchestration with Amazon ECS and AWS Fargate.
+- Application Load Balancer configuration, target groups, and health checks.
+- Amazon RDS MySQL integration and persistent application data.
+- CloudWatch Logs for operational visibility.
+- Deployment validation through ECS service status, target health, application behavior, logs, and Terraform convergence.
+- Cost-aware infrastructure cleanup with Terraform.
 
 ## Possible next steps
 
-- Move the container image from Docker Hub to Amazon ECR.
-- Store database credentials in AWS Secrets Manager instead of task-definition environment variables.
-- Add RDS Multi-AZ deployment and automated backups for stronger database resilience.
-- Add ECS Service Auto Scaling based on CPU utilisation, memory utilisation, or ALB request count.
-- Add HTTPS through AWS Certificate Manager and an ALB HTTPS listener.
-- Add a custom domain through Amazon Route 53.
-- Add CloudWatch metrics, alarms, and a dashboard for task CPU, memory, request latency, target health, and database connections.
-- Add a CI/CD pipeline with GitHub Actions to build the Docker image, run tests, validate Terraform, and deploy changes.
-- Use an S3 remote backend and DynamoDB locking for Terraform state management.
-- Add automated unit and integration tests for the Flask application.
-- Add AWS WAF rules and rate limiting at the public ingress layer.
+- Store database credentials in AWS Secrets Manager.
+- Move the application image from Docker Hub to Amazon ECR.
+- Add HTTPS with AWS Certificate Manager and an ALB HTTPS listener.
+- Add ECS Service Auto Scaling based on CPU, memory, or ALB request count.
+- Configure RDS Multi-AZ, backups, and monitoring.
+- Add GitHub Actions for Pytest, Docker builds, Terraform formatting, validation, and deployment.
+- Use an S3 remote Terraform backend with DynamoDB state locking.
+- Add CloudWatch alarms and dashboards.
+- Add authentication, authorization, and AWS WAF protection.
 
 ## Contact
 
