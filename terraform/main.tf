@@ -27,3 +27,14 @@ module "load_balancer" {
   public_subnet_ids     = module.network.public_subnet_ids
   alb_security_group_id = module.security.alb_security_group_id
 }
+
+
+module "database" {
+  source = "./modules/database"
+
+  project_name               = local.project_name
+  environment                = var.environment
+  private_subnet_ids         = module.network.private_subnet_ids
+  database_security_group_id = module.security.database_security_group_id
+  db_password                = var.db_password
+}
