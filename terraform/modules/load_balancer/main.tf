@@ -11,10 +11,10 @@ resource "aws_lb" "this" {
 }
 
 resource "aws_lb_target_group" "app" {
-  name        = "${var.project_name}-${var.environment}-app-tg"
+  name_prefix = "sdapp-"
   port        = 5000
   protocol    = "HTTP"
-  target_type = "instance"
+  target_type = "ip"
   vpc_id      = var.vpc_id
 
   health_check {
@@ -31,6 +31,10 @@ resource "aws_lb_target_group" "app" {
 
   tags = {
     Name = "${var.project_name}-${var.environment}-app-tg"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 

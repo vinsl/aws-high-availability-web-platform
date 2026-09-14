@@ -44,7 +44,7 @@ resource "aws_ecs_task_definition" "app" {
   container_definitions = jsonencode([
     {
       name      = "support-desk"
-      image     = var.container_image
+      image     = "vinsl/support-desk:1.0.2"
       essential = true
 
       portMappings = [
